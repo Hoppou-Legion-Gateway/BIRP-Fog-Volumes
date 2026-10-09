@@ -1,6 +1,5 @@
 using UnityEngine;
 using UnityEditor;
-using UnityEditor.Rendering;
 using System.IO;
 
 // Ripped from the SRP Volume component editor with significant changes. 
@@ -29,8 +28,6 @@ namespace Sinnwrig.FogVolumes.Editor
             public static readonly GUIContent maxDistance = EditorGUIUtility.TrTextContent("Max Distance", "Maximum distance the Fog Volume will draw at before being culled");
             public static readonly GUIContent distanceFade = EditorGUIUtility.TrTextContent("Distance Fade", "At what percentage from the maximum distance will the fog begin to fade out");
 
-            public static readonly GUIContent lightLayerMask = EditorGUIUtility.TrTextContent("Light Mask", "This volume will only be affected by lights in the selected scene-layers");
-            public static readonly GUIContent disableLightLimit = EditorGUIUtility.TrTextContent("Disable Light Limit", "Disable the per-object light limit for this volume");
 
             public static readonly GUIContent profile = EditorGUIUtility.TrTextContent("Profile", "A Fog Volume Profile is a Scriptable Object which defines how Fog Volumes draw fog in the scene.");
             public static readonly GUIContent profileInstance = EditorGUIUtility.TrTextContent("Profile (Instance)", profile.tooltip);
@@ -38,6 +35,8 @@ namespace Sinnwrig.FogVolumes.Editor
             public static readonly GUIContent saveLabel = EditorGUIUtility.TrTextContent("Save", "Save the instantiated profile");
             public static readonly GUIContent cloneLabel = EditorGUIUtility.TrTextContent("Clone", "Create a new profile and copy the content of the currently assigned profile.");
             public static readonly string noVolumeMessage = L10n.Tr("Please select or create a new Fog Volume profile to begin applying fog to the scene.");
+            public static readonly string depthTextureMessage = L10n.Tr("Fog volumes need the camera depth texture, which VRChat only renders when the scene has a realtime Directional Light with shadows enabled. " +
+                "Add one (it can have a very low intensity and a culling mask containing only an empty layer), otherwise fog will not render in VRChat.");
         }
 
 
@@ -94,8 +93,6 @@ namespace Sinnwrig.FogVolumes.Editor
         private SerializedProperty lightsFade;
         private SerializedProperty maxDistance;
         private SerializedProperty distanceFade;
-        private SerializedProperty lightLayerMask;
-        private SerializedProperty disableLightLimit;
 
         private UnityEditor.Editor profileEditor;
 
@@ -111,20 +108,16 @@ namespace Sinnwrig.FogVolumes.Editor
 
         private void OnEnable()
         {
-            PropertyFetcher<FogVolume> fetcher = new(serializedObject);
-
-            profile = fetcher.Find("sharedProfile");
+            profile = serializedObject.FindProperty("sharedProfile");
 
             SetProfileEditor();
 
-            volumeType = fetcher.Find("volumeType");
-            edgeFade = fetcher.Find("edgeFade");
-            fadeOffset = fetcher.Find("fadeOffset");
-            lightsFade = fetcher.Find("lightsFade");
-            maxDistance = fetcher.Find("maxDistance");
-            distanceFade = fetcher.Find("distanceFade");
-            lightLayerMask = fetcher.Find("lightLayerMask");
-            disableLightLimit = fetcher.Find("disableLightLimit");
+            volumeType = serializedObject.FindProperty("volumeType");
+            edgeFade = serializedObject.FindProperty("edgeFade");
+            fadeOffset = serializedObject.FindProperty("fadeOffset");
+            lightsFade = serializedObject.FindProperty("lightsFade");
+            maxDistance = serializedObject.FindProperty("maxDistance");
+            distanceFade = serializedObject.FindProperty("distanceFade");
         }
 
 
@@ -138,38 +131,34 @@ namespace Sinnwrig.FogVolumes.Editor
 
             bool assetHasChanged = DrawProfileField(actualTarget);
 
-            EditorGUILayout.PropertyField(lightLayerMask, Styles.lightLayerMask);
-            EditorGUILayout.PropertyField(disableLightLimit, Styles.disableLightLimit);
+            EditorGUILayout.Space(5f);
+
+            EditorGUILayout.LabelField("Fade", EditorStyles.boldLabel);
+
+            EditorGUI.indentLevel++;
+            DrawFadeField();
+            EditorGUI.indentLevel--;
+
+            QuickSpace(0.1f);
+
+            EditorGUILayout.PropertyField(lightsFade, Styles.lightsFade);
+
+            QuickSpace(0.1f);
+
+            DrawDistanceField();
 
             EditorGUILayout.Space(5f);
 
-            //edgeFade.isExpanded = DrawHeaderToggleFoldout(new GUIContent("Fade Settings"), edgeFade.isExpanded, false);
-            
-            if (edgeFade.isExpanded)
-            {
-                EditorGUI.indentLevel++;
-                DrawFadeField();
-                EditorGUI.indentLevel--;
-
-                QuickSpace(0.1f);
-
-                EditorGUILayout.PropertyField(lightsFade, Styles.lightsFade);
-
-                QuickSpace(0.1f);
-
-                DrawDistanceField();
-
-                EditorGUILayout.Space(5f);
-            }
-
-            
-            //profile.isExpanded = DrawHeaderToggleFoldout(new GUIContent("Volume Profile"), profile.isExpanded);
+#if FOGVOLUMES_VRCSDK
+            if (!HasDepthTextureLight())
+                EditorGUILayout.HelpBox(Styles.depthTextureMessage, MessageType.Warning);
+#endif
 
             if (profile.objectReferenceValue == null)
             {
                 EditorGUILayout.HelpBox(Styles.noVolumeMessage, MessageType.Warning);
             }
-            else if (profile.isExpanded)
+            else
             {
                 DrawProfileEditor(actualTarget, assetHasChanged);   
             }
@@ -217,6 +206,29 @@ namespace Sinnwrig.FogVolumes.Editor
             EditorGUI.indentLevel++;
             EditorGUILayout.PropertyField(distanceFade, Styles.distanceFade);
             EditorGUI.indentLevel--;
+        }
+
+
+#if FOGVOLUMES_VRCSDK
+        private static bool HasDepthTextureLight()
+        {
+            foreach (Light light in FindObjectsOfType<Light>())
+            {
+                if (light.type == LightType.Directional && light.shadows != LightShadows.None && light.lightmapBakeType != LightmapBakeType.Baked)
+                    return true;
+            }
+
+            return false;
+        }
+#endif
+
+
+        private static string ReplaceInvalidFileNameCharacters(string fileName)
+        {
+            foreach (char c in Path.GetInvalidFileNameChars())
+                fileName = fileName.Replace(c, '_');
+
+            return fileName;
         }
 
 
@@ -376,7 +388,7 @@ namespace Sinnwrig.FogVolumes.Editor
                 path = profileFolder;
             }
 
-            path = Path.Combine(path, targetName.ReplaceInvalidFileNameCharacters() + ".asset");
+            path = Path.Combine(path, ReplaceInvalidFileNameCharacters(targetName) + ".asset");
 
             var profile = CreateInstance<FogVolumeProfile>();
             CreateUniqueAsset(profile, path);

@@ -1,70 +1,132 @@
-Shader "Hidden/VolumetricFog"
-{	
+// Raymarched fog volume for the Built-in Render Pipeline.
+//
+// Usable without any scripts (e.g. in VRChat worlds): put this material on a Cube (Sphere/Cube volume types)
+// or a Cylinder (Capsule/Cylinder volume types) mesh, and make sure the camera renders a depth texture.
+// The FogVolume component does all of this automatically and keeps the material in sync with its profile.
+Shader "Fog Volumes/Volumetric Fog"
+{
 	Properties
 	{
-		_NoiseTexture ("_NoiseTexture", 3D) = "white" {}
-		_NoiseData ("_NoiseData", Vector) = (0, 0, 0, 0)
-		_NoiseVelocity ("_NoiseVelocity", Vector) = (0, 0, 0, 0)
+		[Header(Volume)]
+		[KeywordEnum(Sphere, Cube, Capsule, Cylinder)] _Shape ("Volume Type", Float) = 0
+		_EdgeFade ("Edge Fade", Vector) = (0.6, 0.6, 0.6, 0)
+		_FadeOffset ("Fade Offset", Vector) = (0, 0, 0, 0)
+		[ToggleUI] _LightsFade ("Lighting Fade", Float) = 0
+		_MaxDistance ("Max Distance", Float) = 100
+		_DistanceFade ("Distance Fade", Range(0, 1)) = 1
 
-		_Albedo ("_Albedo", Color) = (0, 0, 0, 0)
+		[Header(Appearance)]
+		[HDR] _Albedo ("Albedo", Color) = (1, 1, 1, 1)
+		[HDR] _Ambient ("Ambient Color", Color) = (1, 1, 1, 1)
+		_AmbientOpacity ("Ambient Opacity", Float) = 1
 
-		_Albedo ("_Ambient", Color) = (0, 0, 0, 0)
-		_Intensity ("_Intensity", Float) = 1
+		[Header(Ray Marching)]
+		_MinStepLength ("Min Step Length", Float) = 0.5
+		_MaxStepLength ("Max Step Length", Float) = 3
+		_StepIncrement ("Step Increment", Range(1, 2)) = 1.1
+		_MaxRayLength ("Max Ray Length", Float) = 50
+		[IntRange] _SampleCount ("Sample Count", Range(1, 1024)) = 36
+		_Jitter ("Jitter Strength", Float) = 0.05
 
-        _StepParams ("_StepParams", Vector) = (0, 0, 0, 0)
-        _SampleCount ("SampleCount", Int) = 0
-    	_Jitter ("_Jitter", Float) = 0
+		[Header(Lighting)]
+		[KeywordEnum(Unlit, Lit, Shadowed)] _Lighting ("Lighting Mode", Float) = 1
+		_IntensityModifier ("Light Intensity Modifier", Float) = 1
+		_Scattering ("Scattering", Range(0, 1)) = 0.1
+		_Extinction ("Extinction", Range(0, 1)) = 0.05
+		_MieG ("Mie G", Range(0, 0.999)) = 0.1
+		_BrightnessClamp ("Brightness Clamp", Range(0, 100)) = 10
 
-		_IntensityModifier ("_IntensityModifier", Float) = 1
-    	_MieG ("_MieG", Float) = 0
-    	_Scattering ("_Scattering", Float) = 0
-    	_Extinction ("_Extinction", Float) = 0
-
-        _BrightnessClamp ("_BrightnessClamp", Float) = 0
+		[Header(Noise)]
+		[Toggle(_FOG_NOISE)] _NoiseEnabled ("Enable Noise", Float) = 0
+		[NoScaleOffset] _NoiseTexture ("Noise Texture", 3D) = "white" {}
+		_NoiseScale ("Noise Scale", Float) = 0.1
+		_NoiseScroll ("Noise Scroll", Vector) = (0, -0.15, 0, 0)
+		_NoiseIntensity ("Noise Intensity", Range(0, 1)) = 1
+		_NoiseIntensityOffset ("Noise Intensity Offset", Range(0, 1)) = 0.5
 	}
+
+	CGINCLUDE
+
+	#include "Include/Common.hlsl"
+	#include "Include/Math.hlsl"
+	#include "Include/Intersection.hlsl"
+
+	ENDCG
 
 	SubShader
 	{
+		// Rendered after opaques and the skybox, before regular transparents.
+		// Batching would bake the object transform into the mesh, which the raymarcher relies on.
+		Tags { "Queue"="Transparent-100" "RenderType"="Transparent" "IgnoreProjector"="True" "DisableBatching"="True" "PreviewType"="Sphere" }
+
+		// Back faces with no depth test: the shader clips the ray against the scene depth itself,
+		// and back faces still exist when the camera is inside the volume.
+		Cull Front
+		ZWrite Off
+		ZTest Always
+
+		// Pass 0 - ambient, main directional light and vertex lights. Darkens the background by the fog opacity.
 		Pass
 		{
-			Cull Off ZWrite Off ZTest Off
-			Blend One One
+			Name "FORWARD"
+			Tags { "LightMode"="ForwardBase" }
 
-			HLSLPROGRAM
+			Blend One OneMinusSrcAlpha
+
+			CGPROGRAM
 
 			#pragma exclude_renderers d3d11_9x
     		#pragma exclude_renderers d3d9
 
 			#pragma vertex VolumetricVertex
 			#pragma fragment VolumetricFragment
-			#pragma target 4.0
+			#pragma target 3.5
 
-			// URP keywords
-			#pragma multi_compile_fragment _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE
-			#pragma multi_compile_fragment _ _ADDITIONAL_LIGHTS 
-			#pragma multi_compile_fragment _ _ADDITIONAL_LIGHT_SHADOWS
-			#pragma multi_compile_fragment _ _SHADOWS_SOFT
-			#pragma multi_compile_fragment _ _SCREEN_SPACE_OCCLUSION
-			#pragma multi_compile_fragment _ _LIGHT_COOKIES
+			#pragma multi_compile _ VERTEXLIGHT_ON
 
-			// Custom keywords
-			#pragma multi_compile_fragment _ TEMPORAL_RENDERING_ENABLED
-			#pragma multi_compile_local_fragment _ NOISE_ENABLED
-   			#pragma multi_compile_local_fragment _ LIGHTING_ENABLED SHADOWS_ENABLED 
+			#pragma shader_feature_local _SHAPE_SPHERE _SHAPE_CUBE _SHAPE_CAPSULE _SHAPE_CYLINDER
+			#pragma shader_feature_local _LIGHTING_UNLIT _LIGHTING_LIT _LIGHTING_SHADOWED
+			#pragma shader_feature_local _FOG_NOISE
 
-			#pragma multi_compile_fragment _ SPHERE_VOLUME CUBE_VOLUME CAPSULE_VOLUME CYLINDER_VOLUME
+			#define FOG_PASS_BASE
 
-			#define MAX_LIGHT_COUNT 32
+			#include "Include/LightAttenuation.hlsl"
+			#include "Include/VolumetricFog.hlsl"
 
-			#include "/Include/Common.hlsl"
-			#include "/Include/Math.hlsl"
-			#include "/Include/Intersection.hlsl"
-			#include "/Include/LightAttenuation.hlsl"
-			#include "/Include/Reprojection.hlsl"
-			#include "/Include/GIProbes.hlsl"
-			#include "/Include/VolumetricFog.hlsl"
+			ENDCG
+		}
 
-			ENDHLSL
+		// Pass 1 - one additional per-pixel light (point, spot, cookies, point/spot shadows), blended additively.
+		Pass
+		{
+			Name "FORWARD_DELTA"
+			Tags { "LightMode"="ForwardAdd" }
+
+			Blend One One
+
+			CGPROGRAM
+
+			#pragma exclude_renderers d3d11_9x
+    		#pragma exclude_renderers d3d9
+
+			#pragma vertex VolumetricVertex
+			#pragma fragment VolumetricFragment
+			#pragma target 3.5
+
+			#pragma multi_compile_fwdadd_fullshadows
+
+			#pragma shader_feature_local _SHAPE_SPHERE _SHAPE_CUBE _SHAPE_CAPSULE _SHAPE_CYLINDER
+			#pragma shader_feature_local _LIGHTING_UNLIT _LIGHTING_LIT _LIGHTING_SHADOWED
+			#pragma shader_feature_local _FOG_NOISE
+
+			#define FOG_PASS_ADD
+
+			#include "Include/LightAttenuation.hlsl"
+			#include "Include/VolumetricFog.hlsl"
+
+			ENDCG
 		}
 	}
+
+	Fallback Off
 }

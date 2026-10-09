@@ -2,8 +2,6 @@
     "name": "Sinnwrig.FogVolumes.Editor",
     "rootNamespace": "",
     "references": [
-        "Unity.RenderPipelines.Universal.Runtime",
-        "Unity.RenderPipelines.Core.Editor",
         "Sinnwrig.FogVolumes"
     ],
     "includePlatforms": [
@@ -15,6 +13,12 @@
     "precompiledReferences": [],
     "autoReferenced": true,
     "defineConstraints": [],
-    "versionDefines": [],
+    "versionDefines": [
+        {
+            "name": "com.vrchat.base",
+            "expression": "3.0.0",
+            "define": "FOGVOLUMES_VRCSDK"
+        }
+    ],
     "noEngineReferences": false
 }

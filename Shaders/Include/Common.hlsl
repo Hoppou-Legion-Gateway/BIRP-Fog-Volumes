@@ -1,21 +1,22 @@
 #pragma once
 
-#include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
+#include "UnityCG.cginc"
 
-// Depth sampler macros
-#define LINEAR_EYE_DEPTH(depth) LinearEyeDepth(depth, _ZBufferParams)
-#define LINEAR_01_DEPTH(depth) Linear01Depth(depth, _ZBufferParams)
+// LOD 0 sampler macros to prevent use of gradient functions inside the raymarch loop
+#define SAMPLE_BASE(tex, uv) tex2Dlod(tex, float4((uv), 0, 0))
+#define SAMPLE_BASE3D(tex, uvw) tex3Dlod(tex, float4((uvw), 0))
 
 
-// LOD 0 sampler macros to prevent use of gradient functions
-#define SAMPLE_BASE(_Tex, sampler_Tex, uv) SAMPLE_TEXTURE2D_LOD(_Tex, sampler_Tex, uv, 0)
-#define SAMPLE_BASE3D(_Tex, sampler_Tex, uv) SAMPLE_TEXTURE3D_LOD(_Tex, sampler_Tex, uv, 0)
+UNITY_DECLARE_DEPTH_TEXTURE(_CameraDepthTexture);
 
-inline float4 CorrectUV(float4 vertex)
+
+// Distance along a normalized world-space ray to the opaque scene depth at the given screen UV.
+float SceneDistance(float2 screenUV, float3 rayDir)
 {
-    #if UNITY_UV_STARTS_AT_TOP
-        vertex.y *= -1;
-    #endif
+    float rawDepth = SAMPLE_DEPTH_TEXTURE_LOD(_CameraDepthTexture, float4(screenUV, 0, 0));
+    float eyeDepth = LinearEyeDepth(rawDepth);
 
-    return vertex;
+    // Eye depth is measured along the camera forward axis, convert it to a distance along the ray
+    float3 cameraForward = -UNITY_MATRIX_V[2].xyz;
+    return eyeDepth / max(dot(rayDir, cameraForward), 1e-4);
 }

@@ -1,10 +1,8 @@
 using System;
 using System.Linq;
-using System.Reflection;
 using System.Collections.Generic;
 
 using UnityEngine;
-using UnityEngine.Rendering.Universal;
 using UnityEngine.SceneManagement;
 
 using Sinnwrig.FogVolumes;
@@ -15,20 +13,12 @@ public class VolumeGUIEditor : MonoBehaviour
     private static string[] sceneNames;
     private static int selectedSceneIndex;
 
-    static UniversalRendererData rendererData;
-    static VolumetricFogFeature feature;
-
     static List<FogVolume> sceneVolumes;
 
 
     static void RefreshProps()
     {
-        var rp = (UniversalRenderPipelineAsset)QualitySettings.renderPipeline;
-        var prop = typeof(UniversalRenderPipelineAsset).GetProperty("scriptableRendererData", BindingFlags.NonPublic | BindingFlags.Instance);
-        rendererData = (UniversalRendererData)prop.GetValue(rp);
-        feature = (VolumetricFogFeature)rendererData.rendererFeatures.Find(x => x.GetType() == typeof(VolumetricFogFeature));
-
-        sceneVolumes = VolumetricFogPass.ActiveVolumes.ToList();
+        sceneVolumes = FindObjectsOfType<FogVolume>(true).ToList();
     }
 
 
@@ -48,7 +38,6 @@ public class VolumeGUIEditor : MonoBehaviour
     static string selectedTab = "Volume";
     static string[] tabNames = { "Volume", "Rendering", "Scene", "Camera" };
     static Rect editorRect = new Rect(10, 10, 350, 400);
-    bool isOpen;
 
 
     // Camera properties
@@ -288,44 +277,6 @@ public class VolumeGUIEditor : MonoBehaviour
     void DrawRenderingEditor()
     {
         GUILayout.Label(new GUIContent($"Render time: {lastFps}FPS ({avgTime:0.0}ms)"));
-
-        if (feature == null) 
-            return;
-
-        bool isDirty = false;
-
-        if (!feature.temporalRendering)
-        {
-            feature.resolution = EnumDropown("Render Resolution", feature.resolution, ref isOpen, ref isDirty, GUILayout.Width(180f));
-        }
-        else
-        {
-            GUI.enabled = false;
-            EnumDropown("Render Resolution", VolumetricResolution.Full, ref isOpen, ref isDirty, GUILayout.Width(180f));
-            GUI.enabled = true;   
-        }
-
-        if (feature.resolution == VolumetricResolution.Full || feature.temporalRendering)
-        {
-            feature.disableBlur = InvertedToggle(feature.disableBlur, new GUIContent("Disable Blur"), ref isDirty, GUILayout.Width(160f));
-        }
-        else
-        {
-            GUI.enabled = false;
-            InvertedToggle(false, new GUIContent("Disable Blur"), ref isDirty, GUILayout.Width(160f));
-            GUI.enabled = true;
-        }
-
-
-        feature.temporalRendering = InvertedToggle(feature.temporalRendering, new GUIContent("Temporal Reprojection"), ref isDirty, GUILayout.Width(160f));
-
-        if (feature.temporalRendering)
-        {
-            feature.temporalResolution = (int)Slider(feature.temporalResolution, 2, 10, new GUIContent("Temporal Size"), ref isDirty, GUILayout.Width(160f));
-        }
-
-        if (isDirty)
-            rendererData.SetDirty();
     }
 
 
@@ -350,75 +301,6 @@ public class VolumeGUIEditor : MonoBehaviour
         }
 
         GUI.enabled = true;
-    }
-
-
-    static T EnumDropown<T>(string nameField, T value, ref bool isOpen, ref bool isDirty, params GUILayoutOption[] layoutOptions) where T : Enum
-    {
-        GUILayout.BeginHorizontal();
-
-        GUILayout.Label(nameField, layoutOptions);
-
-        if (GUILayout.Button(value.ToString()))
-            isOpen = !isOpen;
-
-        Rect buttonRect = GUILayoutUtility.GetLastRect();
-
-        GUILayout.EndHorizontal();
-
-        if (isOpen)
-        {
-            Array enums = Enum.GetValues(typeof(T));
-
-            Rect boxRect = buttonRect;
-            boxRect.y += buttonRect.height;
-
-            boxRect.height = enums.Length * buttonRect.height + 5f;
-
-            GUI.Box(boxRect, GUIContent.none);
-
-            Rect optionRect = buttonRect;
-            optionRect.height -= 2.5f;
-            optionRect.width -= 5;
-            optionRect.x += 2.5f;
-
-            for (int i = 0; i < enums.Length; i++)
-            {
-                optionRect.y = boxRect.y + (buttonRect.height * i) + 5;
-
-                T option = (T)enums.GetValue(i);
-
-                if (GUI.Button(optionRect, option.ToString()))
-                {
-                    isDirty = !isDirty && !value.Equals(option);
-                    value = option;
-                    isOpen = false;
-                }
-            }
-
-            if (Event.current.type == EventType.MouseDown && !boxRect.Contains(Event.current.mousePosition) && Event.current.button == 0)
-            {
-                isOpen = false;
-                Event.current.Use();
-            }
-        }
-
-        return value;
-    }
-
-
-    static bool InvertedToggle(bool value, GUIContent content, ref bool isDirty, params GUILayoutOption[] layoutOptions)
-    {
-        GUILayout.BeginHorizontal();
-
-        GUILayout.Label(content, layoutOptions);
-
-        bool newValue = GUILayout.Toggle(value, GUIContent.none);
-
-        GUILayout.EndHorizontal();
-
-        isDirty = !isDirty && value != newValue;
-        return newValue;
     }
 
 

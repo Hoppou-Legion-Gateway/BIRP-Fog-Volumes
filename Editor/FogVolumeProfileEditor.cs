@@ -1,6 +1,5 @@
 using UnityEngine;
 using UnityEditor;
-using UnityEditor.Rendering;
 
 
 namespace Sinnwrig.FogVolumes.Editor
@@ -22,7 +21,8 @@ namespace Sinnwrig.FogVolumes.Editor
             public static readonly GUIContent maxSampleCount = EditorGUIUtility.TrTextContent("Sample Count", "The maximum amount of samples or steps the raymarcher is allowed to take.");
             public static readonly GUIContent jitterStrength = EditorGUIUtility.TrTextContent("Jitter Strength", "The intensity of pseudorandom jitter used to offset the starting point of the raymarcher.");
 
-            public static readonly GUIContent lightingMode = EditorGUIUtility.TrTextContent("Lighting Mode", "How scene lights will affect fog. When set to None, lights will not influence the fog. When set to Lit, lights will influence fog. When set to Shadowed, lights and shadows will influence the fog.");
+            public static readonly GUIContent lightingMode = EditorGUIUtility.TrTextContent("Lighting Mode", "How scene lights will affect fog. When set to Unlit, lights will not influence the fog. When set to Lit, lights will influence fog. When set to Shadowed, lights and shadows will influence the fog.");
+            public static readonly string shadowsMessage = L10n.Tr("Only point and spot light shadows affect fog in the Built-in Render Pipeline. Directional light shadows are resolved in screen space and can't be sampled inside a volume.");
             public static readonly GUIContent lightIntensityModifier = EditorGUIUtility.TrTextContent("Light Intensity Modifier", "Modulates the strength and intensity of the lights affecting the fog.");
             public static readonly GUIContent scattering = EditorGUIUtility.TrTextContent("Scattering", "How much light is scattered towards the camera. Higher values will produce brighter fog.");
             public static readonly GUIContent extinction = EditorGUIUtility.TrTextContent("Extinction", "How quickly light power is reduced based on its distance to the camera. Higher values will fade fog further away.");
@@ -71,33 +71,31 @@ namespace Sinnwrig.FogVolumes.Editor
 
         private void OnEnable()
         {
-            PropertyFetcher<FogVolume> fetcher = new(serializedObject);
+            albedo = serializedObject.FindProperty("albedo");
 
-            albedo = fetcher.Find("albedo");
+            ambientColor = serializedObject.FindProperty("ambientColor");
+            ambientOpacity = serializedObject.FindProperty("ambientOpacity");
 
-            ambientColor = fetcher.Find("ambientColor");
-            ambientOpacity = fetcher.Find("ambientOpacity");
+            minMaxStepLength = serializedObject.FindProperty("minMaxStepLength");
+            stepIncrementFactor = serializedObject.FindProperty("stepIncrementFactor");
+            maxRayLength = serializedObject.FindProperty("maxRayLength");
 
-            minMaxStepLength = fetcher.Find("minMaxStepLength");
-            stepIncrementFactor = fetcher.Find("stepIncrementFactor");
-            maxRayLength = fetcher.Find("maxRayLength");
+            maxSampleCount = serializedObject.FindProperty("maxSampleCount");
+            jitterStrength = serializedObject.FindProperty("jitterStrength");
 
-            maxSampleCount = fetcher.Find("maxSampleCount");
-            jitterStrength = fetcher.Find("jitterStrength");
+            lightingMode = serializedObject.FindProperty("lightingMode");
+            lightIntensityModifier = serializedObject.FindProperty("lightIntensityModifier");
+            scattering = serializedObject.FindProperty("scattering");
+            extinction = serializedObject.FindProperty("extinction");
 
-            lightingMode = fetcher.Find("lightingMode");
-            lightIntensityModifier = fetcher.Find("lightIntensityModifier");
-            scattering = fetcher.Find("scattering");
-            extinction = fetcher.Find("extinction");
+            mieG = serializedObject.FindProperty("mieG");
+            brightnessClamp = serializedObject.FindProperty("brightnessClamp");
 
-            mieG = fetcher.Find("mieG");
-            brightnessClamp = fetcher.Find("brightnessClamp");
-
-            noiseTexture = fetcher.Find("noiseTexture");
-            scale = fetcher.Find("scale");
-            noiseScroll = fetcher.Find("noiseScroll");
-            noiseIntensity = fetcher.Find("noiseIntensity");
-            intensityOffset = fetcher.Find("intensityOffset");
+            noiseTexture = serializedObject.FindProperty("noiseTexture");
+            scale = serializedObject.FindProperty("scale");
+            noiseScroll = serializedObject.FindProperty("noiseScroll");
+            noiseIntensity = serializedObject.FindProperty("noiseIntensity");
+            intensityOffset = serializedObject.FindProperty("intensityOffset");
         }
 
 
@@ -128,6 +126,9 @@ namespace Sinnwrig.FogVolumes.Editor
             EditorGUILayout.LabelField("Lighting", EditorStyles.boldLabel);
 
             EditorGUILayout.PropertyField(lightingMode, Styles.lightingMode);
+
+            if (!lightingMode.hasMultipleDifferentValues && lightingMode.enumValueIndex == (int)LightingMode.Shadowed)
+                EditorGUILayout.HelpBox(Styles.shadowsMessage, MessageType.Info);
 
             EditorGUILayout.PropertyField(lightIntensityModifier, Styles.lightIntensityModifier);
             EditorGUILayout.PropertyField(scattering, Styles.scattering);
